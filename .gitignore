@@ -1,0 +1,21 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs and temp
+*.log
+*.tmp
+
+# Do NOT commit VM images or large binaries
+*.vmdk
+*.iso
+*.ova
+*.ovf
+
+# Secrets (just in case)
+secrets.*
+*.env

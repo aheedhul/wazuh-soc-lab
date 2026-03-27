@@ -1,0 +1,3 @@
+<syscheck>
+  <directories realtime="yes">/root/soc_trap</directories>
+</syscheck>
