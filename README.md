@@ -39,3 +39,31 @@ For a detailed, narrative report of the project, see:
 ### File Integrity Monitoring alert for /root/soc_trap
 
 ![FIM alert](images/fim-alert.png)
+
+### Nmap SYN scan (visibility gap – no alert)
+
+![Nmap scan](images/nmap-scan.png)
+
+### MITRE ATT&CK techniques by agent
+
+![MITRE techniques by agent](images/mitre-techniques-by-agent.png)
+
+### Attacks by technique
+
+![Attacks by technique](images/attacks-by-technique.png)
+
+### Tactics by agent
+
+![Tactics by agent](images/tactics-by-agent.png)
+
+
+## Scripts
+
+The `scripts/` directory contains helper scripts used during lab setup:
+
+| Script | Purpose |
+|--------|---------|
+| `dynamic-ip-helper.py` | Updates the Wazuh agent config with a new manager IP (Python version) |
+| `update-wazuh.sh` | Same as above (Bash version – kept as a cross-language reference) |
+| `enable_fim.py` | Injects FIM real-time monitoring config into `ossec.conf` |
+| `inject_active_response.py` | Injects Active Response firewall-drop config into `ossec.conf` |
