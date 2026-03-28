@@ -1,0 +1,115 @@
+<!--
+  Sysmon Minimal Config for Wazuh SOC Lab
+  Purpose: Focused logging for learning and detection practice.
+  Logs:  Event 1  (Process Creation)
+         Event 3  (Network Connection)
+         Event 11 (File Create)
+         Event 22 (DNS Query)
+  All other Sysmon event types are excluded to keep noise low.
+  Expand gradually as you learn what each event type reveals.
+-->
+<Sysmon schemaversion="4.90">
+
+  <HashAlgorithms>md5,sha256</HashAlgorithms>
+
+  <EventFiltering>
+
+    <!-- EVENT ID 1: Process Creation — the most important Sysmon event.
+         Logs every new process with full command line, parent process, and hashes.
+         We exclude known-noisy Windows background processes to reduce clutter. -->
+    <RuleGroup name="ProcessCreate" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <Image condition="is">C:\Windows\System32\backgroundTaskHost.exe</Image>
+        <Image condition="is">C:\Windows\System32\SearchProtocolHost.exe</Image>
+        <Image condition="is">C:\Windows\System32\SearchFilterHost.exe</Image>
+        <Image condition="is">C:\Windows\System32\SearchIndexer.exe</Image>
+        <Image condition="is">C:\Windows\System32\RuntimeBroker.exe</Image>
+        <Image condition="is">C:\Windows\System32\smartscreen.exe</Image>
+        <Image condition="is">C:\Windows\System32\SecurityHealthSystray.exe</Image>
+        <Image condition="is">C:\Windows\System32\SgrmBroker.exe</Image>
+        <Image condition="is">C:\Windows\System32\conhost.exe</Image>
+        <Image condition="is">C:\Windows\System32\musNotifyIcon.exe</Image>
+        <Image condition="is">C:\Windows\System32\MusNotification.exe</Image>
+        <ParentImage condition="is">C:\Windows\System32\svchost.exe</ParentImage>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- EVENT ID 3: Network Connection — which process connects where.
+         Exclude common Windows services and browsers to focus on unusual outbound traffic. -->
+    <RuleGroup name="NetworkConnect" groupRelation="or">
+      <NetworkConnect onmatch="exclude">
+        <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+        <Image condition="is">C:\Program Files\Windows Defender\MsMpEng.exe</Image>
+        <Image condition="is">C:\Windows\System32\lsass.exe</Image>
+        <DestinationPort condition="is">137</DestinationPort>
+        <DestinationPort condition="is">138</DestinationPort>
+        <DestinationPort condition="is">1900</DestinationPort>
+        <DestinationPort condition="is">5353</DestinationPort>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- EVENT ID 11: File Create — new files written to disk.
+         Only log files in high-value locations to avoid drowning in temp-file noise. -->
+    <RuleGroup name="FileCreate" groupRelation="or">
+      <FileCreate onmatch="include">
+        <TargetFilename condition="contains">\Desktop\</TargetFilename>
+        <TargetFilename condition="contains">\Downloads\</TargetFilename>
+        <TargetFilename condition="contains">\Documents\</TargetFilename>
+        <TargetFilename condition="contains">\Startup\</TargetFilename>
+        <TargetFilename condition="contains">\Start Menu\</TargetFilename>
+        <TargetFilename condition="contains">\Temp\</TargetFilename>
+        <TargetFilename condition="end with">.exe</TargetFilename>
+        <TargetFilename condition="end with">.dll</TargetFilename>
+        <TargetFilename condition="end with">.bat</TargetFilename>
+        <TargetFilename condition="end with">.cmd</TargetFilename>
+        <TargetFilename condition="end with">.ps1</TargetFilename>
+        <TargetFilename condition="end with">.vbs</TargetFilename>
+        <TargetFilename condition="end with">.js</TargetFilename>
+        <TargetFilename condition="end with">.hta</TargetFilename>
+        <TargetFilename condition="end with">.scr</TargetFilename>
+        <TargetFilename condition="end with">.lnk</TargetFilename>
+      </FileCreate>
+    </RuleGroup>
+
+    <!-- EVENT ID 22: DNS Query — which process resolves which domain.
+         Exclude common Microsoft domains to focus on unusual lookups. -->
+    <RuleGroup name="DnsQuery" groupRelation="or">
+      <DnsQuery onmatch="exclude">
+        <QueryName condition="end with">.microsoft.com</QueryName>
+        <QueryName condition="end with">.windowsupdate.com</QueryName>
+        <QueryName condition="end with">.windows.com</QueryName>
+        <QueryName condition="end with">.bing.com</QueryName>
+        <QueryName condition="end with">.msftconnecttest.com</QueryName>
+        <QueryName condition="end with">.live.com</QueryName>
+        <QueryName condition="end with">.office.com</QueryName>
+        <QueryName condition="end with">.msedge.net</QueryName>
+        <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+      </DnsQuery>
+    </RuleGroup>
+
+    <!-- All other event types are EXCLUDED (not logged) to keep things minimal.
+         As you learn, you can enable more: 7 (DLL load), 8 (CreateRemoteThread),
+         12-14 (Registry), 15 (FileCreateStreamHash), etc. -->
+    <RuleGroup name="Excluded" groupRelation="or">
+      <ProcessTerminate onmatch="include" />
+      <FileCreateTime onmatch="include" />
+      <ImageLoad onmatch="include" />
+      <CreateRemoteThread onmatch="include" />
+      <RawAccessRead onmatch="include" />
+      <ProcessAccess onmatch="include" />
+      <DriverLoad onmatch="include" />
+      <RegistryEvent onmatch="include" />
+      <FileCreateStreamHash onmatch="include" />
+      <PipeEvent onmatch="include" />
+      <WmiEvent onmatch="include" />
+      <ClipboardChange onmatch="include" />
+      <ProcessTampering onmatch="include" />
+      <FileDelete onmatch="include" />
+      <FileBlockExecutable onmatch="include" />
+      <FileBlockShredding onmatch="include" />
+      <FileExecutableDetected onmatch="include" />
+    </RuleGroup>
+
+  </EventFiltering>
+
+</Sysmon>
