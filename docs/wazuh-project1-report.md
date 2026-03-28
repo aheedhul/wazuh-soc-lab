@@ -193,16 +193,63 @@ By completing this project to its current state, Aheedhul Faaiz has demonstrated
 - **Troubleshooting and systems thinking**
   - Recovered a broken Kali rolling‑release upgrade, resolved package conflicts, and iteratively debugged connectivity and configuration issues across OS, hypervisor, and SIEM layers.[^1]
 
+## Windows Agent Deployment and Endpoint Hardening
+
+### Agent Installation and Onboarding
+
+A Windows 11 Pro endpoint (hostname: Elite) was onboarded as the second Wazuh agent (agent ID 002, named "Windows11"). The agent was installed using the official Wazuh 4.8.2 Windows installer and configured to report to the Wazuh manager over TCP/1514 on the bridged network.
+
+On startup, the agent confirmed connectivity and immediately began collecting logs from the three default Windows Event Log channels: Application, Security, and System. It also ran an initial File Integrity Monitoring scan against the default monitored paths (critical system binaries in `%WINDIR%`, `System32`, and the Startup folder), a Security Configuration Assessment evaluation against the CIS Windows 11 Enterprise Benchmark v1.0.0, a Syscollector hardware and software inventory, and a Rootcheck anomaly scan.
+
+### Sysmon Deployment for Deep Endpoint Visibility
+
+Out of the box, Windows Security logs provide authentication events (Event IDs 4624/4625 for successful and failed logins) and basic system changes, but critically lack visibility into process execution, network connections, file creation, and DNS queries. To close this gap, Sysmon (System Monitor) v15.x from Microsoft Sysinternals was deployed with a custom minimal configuration.
+
+The Sysmon configuration was designed to log four high‑value event types while filtering out known‑noisy Windows background processes:
+
+- **Event ID 1 (Process Creation)**: Logs every new process with full command line, parent process tree, and MD5/SHA256 file hashes. Excludes known Windows internal processes such as `backgroundTaskHost.exe`, `SearchIndexer.exe`, `RuntimeBroker.exe`, and child processes of `svchost.exe` to reduce noise.
+- **Event ID 3 (Network Connection)**: Logs which process initiates which network connection, with source and destination IP/port. Excludes `svchost.exe`, Windows Defender, and common broadcast/multicast ports (137, 138, 1900, 5353).
+- **Event ID 11 (File Create)**: Logs new files created in high‑value locations (Desktop, Downloads, Documents, Temp, Startup, Start Menu) and files with executable or scripting extensions (`.exe`, `.dll`, `.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`, `.hta`, `.scr`, `.lnk`). Uses include‑only mode to avoid drowning in temporary file noise.
+- **Event ID 22 (DNS Query)**: Logs which process resolves which domain name, excluding common Microsoft infrastructure domains (`*.microsoft.com`, `*.windowsupdate.com`, `*.bing.com`, etc.) to focus on unusual or suspicious lookups.
+
+All other Sysmon event types (DLL loads, registry modifications, process injection, etc.) were intentionally excluded from the initial configuration to keep the lab manageable, with a plan to expand coverage incrementally.
+
+After installation, the Sysmon event channel (`Microsoft-Windows-Sysmon/Operational`) was added to the Wazuh agent's `ossec.conf` as a new `<localfile>` entry with `eventchannel` format. Upon agent restart, the log confirmed: `Analyzing event log: 'Microsoft-Windows-Sysmon/Operational'`.
+
+### Windows Audit Policy Hardening
+
+The default Windows 11 audit policy was found to have `Process Creation` set to `No Auditing`, meaning Event ID 4688 was not being generated. To provide a defense‑in‑depth layer alongside Sysmon, the following audit policy changes were applied:
+
+- **Process Creation**: Enabled for Success and Failure — provides basic process execution logging as a fallback if Sysmon is ever stopped or tampered with.
+- **Command‑line logging**: Enabled via registry key `ProcessCreationIncludeCmdLine_Enabled` under `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit`, ensuring Event ID 4688 entries include full command‑line arguments.
+- **Logon/Logoff**: Confirmed at Success and Failure — preserves 4624/4625 event generation for authentication monitoring.
+- **User Account Management** and **Security Group Management**: Enabled for Success — captures account creation (4720) and group membership changes (4732).
+- **Audit Policy Change**: Enabled for Success — detects if an attacker disables auditing to cover their tracks.
+- Noisy categories such as Object Access (Handle Manipulation, Filtering Platform Connection) and Privilege Use were explicitly kept disabled to avoid overwhelming the SIEM with low‑value events.
+
+### Initial Alert Analysis and False Positive Identification
+
+Immediately after Sysmon integration, Wazuh began generating alerts from the Windows endpoint. The first investigation session identified two categories of false positives:
+
+1. **SCA‑induced process alerts**: The Wazuh SCA module, upon evaluating the CIS Windows 11 Enterprise benchmark, executed system commands such as `net.exe accounts` and `SecEdit.exe /export` to check security configurations. Sysmon captured these as process creation events, and Wazuh rules 92031 ("Discovery activity executed") and 92039 ("A net.exe account discovery command was initiated") fired repeatedly. Investigation confirmed the parent process was the Wazuh agent's SCA module, classifying these as false positives generated by the agent's own compliance checking.
+
+2. **Browser auto‑update file drops**: The Brave browser's component updater extracted update files into `AppData\Local\Temp`, triggering Rule 92213 ("Executable file dropped in folder commonly used by malware") at Level 15 (maximum severity). Investigation confirmed the process was `brave.exe` performing routine component updates, classifying this as a false positive despite its critical severity rating — demonstrating that alert severity alone does not determine whether an event is malicious.
+
+### CIS Benchmark Baseline
+
+The initial SCA evaluation against the CIS Windows 11 Enterprise Benchmark v1.0.0 returned a score of 33% (129 passed, 259 failed, 7 not applicable), reflecting a default Windows 11 installation without enterprise hardening. This baseline will be used to measure improvement as specific security configurations are remediated.
+
 ## Future Work and Next Steps
 
 This lab is deliberately designed as the foundation for additional blue‑team automation and analysis projects.
 
 Planned next steps include:
 
-- **Windows agent deployment**: Onboard a Windows endpoint to demonstrate ingestion of Windows event logs and show cross‑platform monitoring in Wazuh.[^1]
-- **Custom rules and dashboards**: Implement custom Wazuh rules (for example, tuned thresholds for SSH brute force or execution from unusual directories) and build focused dashboards for authentication activity and security alerts.[^1]
-- **Python log and threat‑intel automation (Project 2)**: Develop a Python tool that tails Wazuh `alerts.json`, enriches suspicious IPs with VirusTotal/AbuseIPDB, and sends formatted alerts to a Discord channel, effectively implementing a simple SOAR workflow.[^1]
-- **Network forensics and incident reports (Project 3)**: Capture packet traces for the same attacks (Nmap, Hydra, HTTP attacks) and produce incident reports with Wireshark/Scapy analysis, mapping findings back to Wazuh alerts and MITRE ATT&CK techniques.[^1]
+- **Windows attack simulation**: Simulate attacks from Kali against the Windows endpoint (RDP brute force, suspicious PowerShell execution, test payload drops) and document detection outcomes to validate the Sysmon + Wazuh pipeline.
+- **Alert tuning**: Implement custom Wazuh rules to suppress known false positives (SCA‑induced alerts, browser update file drops) and reduce noise while maintaining detection coverage.
+- **Custom rules and dashboards**: Build focused dashboards for cross‑platform authentication monitoring, process execution anomalies, and Sysmon‑based network connection visibility.
+- **Python log and threat‑intel automation (Project 2)**: Develop a Python tool that tails Wazuh `alerts.json`, enriches suspicious IPs and file hashes with VirusTotal/AbuseIPDB, and sends formatted alerts to a Discord channel, implementing a simple SOAR workflow.
+- **Network forensics and incident reports (Project 3)**: Capture packet traces for attack simulations and produce incident reports with Wireshark/Scapy analysis, mapped to Wazuh alerts and MITRE ATT&CK techniques.
 
 Together, these projects will form a cohesive SOC portfolio demonstrating not only tool usage, but also an understanding of detection mechanics, automation, and documented incident response workflows.
 

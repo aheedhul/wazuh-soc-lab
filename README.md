@@ -16,6 +16,15 @@ For a detailed, narrative report of the project, see:
 
 - [`docs/wazuh-project1-report.md`](docs/wazuh-project1-report.md)
 
+### Alert Investigations
+
+SOC-style alert investigation tickets are documented in [`docs/investigations/`](docs/investigations/):
+
+| Ticket | Rule | Severity | Verdict |
+|--------|------|----------|---------|
+| [SOC-2026-0328-001](docs/investigations/SOC-2026-0328-001.md) | 92213 — Executable file dropped in malware folder | Level 15 | False Positive — Brave browser update |
+| [SOC-2026-0328-002](docs/investigations/SOC-2026-0328-002.md) | 92200 — Scripting file in Temp folder | Level 6 | False Positive — Windows svchost diagnostic |
+
 
 ## Architecture
 
