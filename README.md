@@ -63,7 +63,8 @@ The `scripts/` directory contains helper scripts used during lab setup:
 
 | Script | Purpose |
 |--------|---------|
-| `dynamic-ip-helper.py` | Updates the Wazuh agent config with a new manager IP (Python version) |
-| `update-wazuh.sh` | Same as above (Bash version – kept as a cross-language reference) |
+| `dynamic-ip-helper.py` | Updates the Wazuh agent config with a new manager IP (Python/Linux) |
+| `dynamic-ip-helper-win.ps1` | Updates the Wazuh Windows agent config with a new manager IP (PowerShell) |
+| `update-wazuh.sh` | Same as dynamic-ip-helper.py (Bash version – kept as a cross-language reference) |
 | `enable_fim.py` | Injects FIM real-time monitoring config into `ossec.conf` |
 | `inject_active_response.py` | Injects Active Response firewall-drop config into `ossec.conf` |

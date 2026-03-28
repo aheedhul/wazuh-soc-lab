@@ -18,12 +18,17 @@ echo "[*] Updating configuration file..."
 # 4. String manipulation: 'sed' searches for the old IP and replaces it with the variable $NEW_IP
 sudo sed -i "s/<address>.*<\/address>/<address>${NEW_IP}<\/address>/g" /var/ossec/etc/ossec.conf
 
-echo "[*] Requesting new security key..."
-# 5. Execute the auth command using the variable
-sudo /var/ossec/bin/agent-auth -m "$NEW_IP"
+# 5. Only re-authenticate if the agent has never been registered.
+#    client.keys exists and has content → already registered, just restart.
+if [ -s /var/ossec/etc/client.keys ]; then
+    echo "[*] Agent already registered — skipping re-authentication."
+else
+    echo "[*] First-time registration — requesting key from server..."
+    sudo /var/ossec/bin/agent-auth -m "$NEW_IP"
+fi
 
 echo "[*] Restarting Wazuh agent..."
 # 6. Restart the service
 sudo systemctl restart wazuh-agent
 
-echo "✅ Success! Kali is now reporting to $NEW_IP"
+echo "[+] Success! Kali is now reporting to $NEW_IP"
