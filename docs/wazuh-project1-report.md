@@ -270,13 +270,68 @@ The initial SCA evaluation against the CIS Windows 11 Enterprise Benchmark v1.0.
 
 **Post‑simulation cleanup**: After testing, NLA was re‑enabled, the user account was removed from Remote Desktop Users, RDP was disabled (`fDenyTSConnections = 1`), and the scoped firewall rule was removed — restoring the endpoint to its pre‑test security posture.
 
+### Scenario 2 – Suspicious PowerShell Execution (Detected)
+
+- **Objective**: Simulate post‑exploitation behavior by running commands commonly used by attackers after gaining initial access — Base64‑encoded PowerShell execution, system discovery commands, and a download cradle.
+- **Technique mapping**: MITRE ATT&CK T1059.001 (Command and Scripting Interpreter: PowerShell), T1087 (Account Discovery), T1082 (System Information Discovery).
+
+Three categories of suspicious activity were executed from an elevated PowerShell session on the Windows endpoint:
+
+1. **Base64‑encoded command**: `powershell.exe -EncodedCommand dwBoAG8AYQBtAGkA` — this decodes to `whoami`, a harmless command, but the technique of encoding commands in Base64 is the most common obfuscation method in real‑world post‑exploitation.
+2. **Reconnaissance chain**: `whoami /all`, `net user`, `net localgroup administrators`, `systeminfo`, `ipconfig /all` — standard enumeration commands an attacker runs after gaining a foothold.
+3. **Download cradle**: `Invoke-WebRequest` targeting the EICAR antivirus test file URL, simulating a second‑stage payload download.
+
+**Detection chain observed in Wazuh**:
+
+| Time | Rule ID | Rule Description | Level |
+|------|---------|-----------------|-------|
+| 12:07:14 | **92057** | **Powershell.exe spawned a powershell process which executed a base64 encoded command** | **12** |
+| 12:09:53 | 92052 | Windows command prompt started by an abnormal process | 4 |
+| 12:09:53 | 92032 | Suspicious Windows cmd shell execution | 3 |
+| 12:17:03 | 92031 | Discovery activity executed (×2) | 3 |
+| 12:17:03 | 92033 | Discovery activity spawned via PowerShell execution (×2) | 3 |
+
+**Key observations**:
+
+1. **Encoded command detection (Rule 92057, Level 12)**: Wazuh's highest‑value detection from this scenario. Sysmon Event 1 recorded `powershell.exe` spawning a child `powershell.exe` with the `-EncodedCommand` parameter, and Wazuh's rule engine flagged this as a high‑severity event. In a real incident, the SOC analyst's first step would be decoding the Base64 payload to determine what was executed.
+2. **Discovery clustering**: The reconnaissance commands individually triggered low‑severity alerts (Level 3), but their temporal clustering on a single host — especially following an encoded PowerShell execution — would constitute a high‑confidence indicator of post‑exploitation activity when analyzed as a group.
+3. **Process lineage via Sysmon**: Sysmon Event 1 captured the full parent–child process tree for every command, enabling an analyst to trace the execution chain back to the originating process. This is critical for determining the initial access vector (e.g., distinguishing user‑initiated activity from a malicious document macro spawning PowerShell).
+
+### Scenario 3 – Test Payload Drop and Endpoint Protection Visibility (Detected)
+
+- **Objective**: Simulate an attacker dropping tooling and malware onto the endpoint, and validate that both Sysmon file creation monitoring and Windows Defender event forwarding detect the activity.
+- **Technique mapping**: MITRE ATT&CK T1105 (Ingress Tool Transfer), T1036 (Masquerading).
+- **Prerequisite**: The Windows Defender event channel (`Microsoft-Windows-Windows Defender/Operational`) was added to the Wazuh agent's `ossec.conf` to close a previously identified visibility gap where Defender detections were not forwarded to the SIEM.
+
+Four test files were created via PowerShell's `Set-Content` cmdlet in locations commonly used by attackers:
+
+1. `%TEMP%\update-helper.exe` — a benign text file with an `.exe` extension, simulating a masqueraded executable drop.
+2. `%USERPROFILE%\Downloads\cleanup.bat` — a batch script containing reconnaissance commands (`whoami`, `net user`, `ipconfig /all`).
+3. `%TEMP%\invoke-scan.ps1` — a PowerShell script simulating a post‑exploitation scanner.
+4. `%TEMP%\totally-legit.exe` — containing the EICAR standard antivirus test string, designed to trigger Windows Defender.
+
+**Detection chain observed in Wazuh**:
+
+| Time | Rule ID | Rule Description | Level | Source |
+|------|---------|-----------------|-------|--------|
+| 18:47:36 | **92213** | **Executable file dropped in folder commonly used by malware (×2)** | **15** | Sysmon Event 11 |
+| 18:47:36 | **62123** | **Windows Defender: Antimalware platform detected potentially unwanted software** | **12** | Defender Event 1116 |
+
+**Key observations**:
+
+1. **Maximum severity file drop alerts (Rule 92213, Level 15)**: Sysmon Event 11 detected `.exe` files being created in the Temp directory, and Wazuh classified these at the highest severity level. The process responsible was recorded as `powershell.exe`, which in a real attack would indicate PowerShell‑based payload staging.
+2. **Defender integration validated (Rule 62123, Level 12)**: The EICAR test file triggered Windows Defender's Real‑Time Protection, which classified it as `Virus:DOS/EICAR_Test_File` with severity "Severe." Critically, this detection was now visible in the Wazuh dashboard because the Defender event channel had been added to `ossec.conf`. The alert includes rich context: the detection source (Real‑Time Protection), the responsible process (`powershell.exe`), the exact file path, and the Defender engine version — all information a SOC analyst needs for triage.
+3. **Visibility gap closed**: In an earlier test, the same EICAR file triggered a Defender notification on the endpoint but generated no SIEM alert because the Defender channel was not configured. After adding the channel to `ossec.conf`, the detection now flows through the full pipeline: Defender detects → logs to its event channel → Wazuh agent ships the event → manager classifies as Rule 62123 → indexed and visible in the dashboard. This demonstrates the operational importance of forwarding all endpoint protection logs to the SIEM.
+4. **Layered detection**: The same malicious file drop was caught by two independent detection layers — Sysmon (file creation in a suspicious location) and Defender (content‑based malware signature match) — illustrating defense in depth at the endpoint level.
+
+**Post‑simulation cleanup**: All test files were removed. Defender had already quarantined the EICAR test file automatically.
+
 ## Future Work and Next Steps
 
 This lab is deliberately designed as the foundation for additional blue‑team automation and analysis projects.
 
 Planned next steps include:
 
-- **Additional Windows attack scenarios**: Simulate suspicious PowerShell execution (encoded commands, download cradles) and test payload drops against the Windows endpoint to further validate the Sysmon + Wazuh detection pipeline.
 - **Alert tuning**: Implement custom Wazuh rules to suppress known false positives (SCA‑induced alerts, browser update file drops) and reduce noise while maintaining detection coverage.
 - **Custom rules and dashboards**: Build focused dashboards for cross‑platform authentication monitoring, process execution anomalies, and Sysmon‑based network connection visibility.
 - **Python log and threat‑intel automation (Project 2)**: Develop a Python tool that tails Wazuh `alerts.json`, enriches suspicious IPs and file hashes with VirusTotal/AbuseIPDB, and sends formatted alerts to a Discord channel, implementing a simple SOAR workflow.
