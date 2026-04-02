@@ -239,13 +239,44 @@ Immediately after Sysmon integration, Wazuh began generating alerts from the Win
 
 The initial SCA evaluation against the CIS Windows 11 Enterprise Benchmark v1.0.0 returned a score of 33% (129 passed, 259 failed, 7 not applicable), reflecting a default Windows 11 installation without enterprise hardening. This baseline will be used to measure improvement as specific security configurations are remediated.
 
+## Windows Attack Scenarios and Detection Outcomes
+
+### Scenario 1 – RDP Brute Force with Hydra (Detected)
+
+- **Tool and command**: Hydra from Kali, targeting the Windows 11 endpoint's RDP service (TCP/3389) with a dictionary‑based password guessing attack.
+- **Setup**: RDP was temporarily enabled on the Windows endpoint with a scoped inbound firewall rule (`RDP-Lab-Kali-Only`) restricting access to the Kali attacker IP only. The target account (`user`) was added to the Remote Desktop Users group for the duration of the test.
+- **NLA discovery**: The initial attack attempt with Network Level Authentication (NLA) enabled produced no Windows Security events at all. Hydra's experimental RDP module cannot complete CredSSP/NLA negotiation, so authentication attempts never reached the Windows Security subsystem — making the attack invisible to the SIEM. This is a significant real‑world defense: NLA stops brute‑force tools that cannot speak current authentication protocols, and the absence of log entries means such blocked attempts require network‑level detection (IDS/IPS, firewall connection logs) rather than endpoint telemetry.
+- **Test execution**: After temporarily disabling NLA to allow classic RDP authentication, two Hydra runs were performed:
+  1. A 5‑password wordlist where the correct password appeared at position 3 — Hydra successfully discovered the credential.
+  2. A 14‑password wordlist with the correct password placed near the bottom to maximize failed attempts and trigger correlation rules.
+
+**Detection chain observed in Wazuh**:
+
+| Time | Rule ID | Rule Description | Level | Event ID |
+|------|---------|-----------------|-------|----------|
+| 11:20:36–38 | 60122 | Logon failure – Unknown user or bad password | 5 | 4625 |
+| 11:20:40 | 92657 | Successful Remote Logon Detected – NTLM auth, possible pass‑the‑hash – Possible RDP connection | 6 | 4624 |
+| 11:21:49–59 | 60122 | Logon failure – Unknown user or bad password (×5) | 5 | 4625 |
+| 11:21:59 | **60204** | **Multiple Windows logon failures** | **10** | 4625 |
+| 11:22:01–07 | 60122 | Logon failure – Unknown user or bad password (×4) | 5 | 4625 |
+| 11:22:07 | **60115** | **User account locked out (multiple login errors)** | **9** | 4740 |
+
+**Key observations**:
+
+1. **Brute‑force escalation (Rule 60204, Level 10)**: After a threshold of repeated 4625 events from the same source, Wazuh correlated them into a high‑severity "Multiple Windows logon failures" alert — the Windows equivalent of the SSH brute‑force Rule 5763 observed in the Linux scenarios.
+2. **Account lockout (Rule 60115, Level 9, Event 4740)**: Windows automatically locked the account after exceeding the failed‑attempt threshold, stopping the attack at the OS level. Hydra then entered a RE‑ATTEMPT loop and eventually errored out with "all children were disabled due too many connection errors." This demonstrates a layered defense: the SIEM detects the pattern while the OS simultaneously mitigates it.
+3. **Suspicious successful logon (Rule 92657, Level 6)**: The first Hydra run that found the correct password triggered a detection noting NTLM authentication over RDP with a recommendation to verify that the source host (kali) is authorized. This is the kind of alert a SOC analyst would investigate as potential lateral movement or credential compromise.
+4. **Logon Type 3 (Network)**: All RDP authentication events appeared as Logon Type 3 rather than the interactive Type 10 typically seen with full RDP sessions, because Hydra performs network‑level credential checks without establishing a full desktop session.
+
+**Post‑simulation cleanup**: After testing, NLA was re‑enabled, the user account was removed from Remote Desktop Users, RDP was disabled (`fDenyTSConnections = 1`), and the scoped firewall rule was removed — restoring the endpoint to its pre‑test security posture.
+
 ## Future Work and Next Steps
 
 This lab is deliberately designed as the foundation for additional blue‑team automation and analysis projects.
 
 Planned next steps include:
 
-- **Windows attack simulation**: Simulate attacks from Kali against the Windows endpoint (RDP brute force, suspicious PowerShell execution, test payload drops) and document detection outcomes to validate the Sysmon + Wazuh pipeline.
+- **Additional Windows attack scenarios**: Simulate suspicious PowerShell execution (encoded commands, download cradles) and test payload drops against the Windows endpoint to further validate the Sysmon + Wazuh detection pipeline.
 - **Alert tuning**: Implement custom Wazuh rules to suppress known false positives (SCA‑induced alerts, browser update file drops) and reduce noise while maintaining detection coverage.
 - **Custom rules and dashboards**: Build focused dashboards for cross‑platform authentication monitoring, process execution anomalies, and Sysmon‑based network connection visibility.
 - **Python log and threat‑intel automation (Project 2)**: Develop a Python tool that tails Wazuh `alerts.json`, enriches suspicious IPs and file hashes with VirusTotal/AbuseIPDB, and sends formatted alerts to a Discord channel, implementing a simple SOAR workflow.
