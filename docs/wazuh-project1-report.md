@@ -326,13 +326,60 @@ Four test files were created via PowerShell's `Set-Content` cmdlet in locations 
 
 **Post‑simulation cleanup**: All test files were removed. Defender had already quarantined the EICAR test file automatically.
 
+## Alert Tuning — Custom Rule Overrides
+
+### Rationale
+
+After completing the attack simulations and initial false positive investigations, the Wazuh dashboard contained a significant volume of recurring false positive alerts. Left unaddressed, this noise leads to **alert fatigue** — the primary reason real breaches go undetected in production SOC environments. The goal of alert tuning is to reduce noise without reducing visibility: suppress only the specific patterns that have been investigated and confirmed benign, while preserving all rules that could indicate real threats.
+
+### Tuning Methodology
+
+Wazuh supports three approaches to alert suppression:
+
+1. **Custom rule override (Method 1)**: Create a new rule in `local_rules.xml` that matches the specific false positive pattern and sets Level 0 (suppressed). The original rule remains active for all other events.
+2. **Rule exclusion (Method 2)**: Add `<rule_exclude>` in `ossec.conf` to disable a rule ID entirely. This is dangerous because it suppresses the rule for all events, including potential real attacks.
+3. **CDB lists / whitelists (Method 3)**: Reference a list of known‑good values (processes, IPs, hashes) within rules. Most flexible, used in enterprise environments.
+
+Method 1 was chosen for this lab because it offers **surgical precision**: each suppression targets only the exact combination of process, path, and parent process that was confirmed benign during investigation, while leaving the underlying detection rule fully active for all other patterns.
+
+### Rules Implemented
+
+Four custom rules were added to `/var/ossec/etc/rules/local_rules.xml` on the Wazuh manager, using rule IDs 100002–100005:
+
+| Custom Rule | Suppresses | Original Level | Match Condition | Investigation Reference |
+|-------------|-----------|----------------|-----------------|------------------------|
+| 100002 | Rule 92031 (Discovery activity) | 3 | Parent process is `wazuh-agent` or `ossec-agent` | SCA module running CIS benchmark checks |
+| 100003 | Rule 92039 (net.exe discovery) | 3 | Parent process is `wazuh-agent` or `ossec-agent` | SCA module running `net.exe accounts` |
+| 100004 | Rule 92213 (Executable in malware folder) | 15 | Process is `brave.exe` AND path contains `BraveUpdate` or `BraveSoftware` | [SOC-2026-0328-001](investigations/SOC-2026-0328-001.md) |
+| 100005 | Rule 92200 (Scripting file in Temp) | 6 | Process is `svchost.exe` AND filename contains `pool_tags_summary` | [SOC-2026-0328-002](investigations/SOC-2026-0328-002.md) |
+
+All rules use PCRE2 regular expressions with case‑insensitive matching (`(?i)`) and precise anchoring (e.g., `\\brave\.exe$`) to prevent over‑broad suppression. Each rule requires multiple field matches (AND logic), ensuring that only the exact investigated false positive pattern is suppressed.
+
+### Precision Tuning Example
+
+Rule 100004 demonstrates the precision approach:
+
+```xml
+<rule id="100004" level="0">
+  <if_sid>92213</if_sid>
+  <field name="win.eventdata.image" type="pcre2">(?i)\\brave\.exe$</field>
+  <field name="win.eventdata.targetFilename" type="pcre2">(?i)BraveUpdate|BraveSoftware</field>
+  <description>Suppressed: Brave browser component updater file drop (92213)</description>
+</rule>
+```
+
+This suppresses ONLY when `brave.exe` drops files into Brave‑specific update directories. If any other process drops an executable in the same Temp folder, Rule 92213 still fires at Level 15. If `brave.exe` creates files in an unexpected location, it is also not suppressed. The two‑condition AND logic narrows the suppression window to the minimum necessary.
+
+### Validation
+
+After deploying the rules and restarting the Wazuh manager, `wazuh-analysisd -t` confirmed valid rule syntax and the manager restarted successfully. Subsequent SCA evaluation cycles on the Windows agent no longer generated spurious discovery alerts in the dashboard, while genuine discovery commands (e.g., from the PowerShell attack simulation) continued to trigger alerts as expected.
+
 ## Future Work and Next Steps
 
 This lab is deliberately designed as the foundation for additional blue‑team automation and analysis projects.
 
 Planned next steps include:
 
-- **Alert tuning**: Implement custom Wazuh rules to suppress known false positives (SCA‑induced alerts, browser update file drops) and reduce noise while maintaining detection coverage.
 - **Custom rules and dashboards**: Build focused dashboards for cross‑platform authentication monitoring, process execution anomalies, and Sysmon‑based network connection visibility.
 - **Python log and threat‑intel automation (Project 2)**: Develop a Python tool that tails Wazuh `alerts.json`, enriches suspicious IPs and file hashes with VirusTotal/AbuseIPDB, and sends formatted alerts to a Discord channel, implementing a simple SOAR workflow.
 - **Network forensics and incident reports (Project 3)**: Capture packet traces for attack simulations and produce incident reports with Wireshark/Scapy analysis, mapped to Wazuh alerts and MITRE ATT&CK techniques.

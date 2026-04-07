@@ -9,8 +9,12 @@ This repository documents a Wazuh-based SOC home lab built by Aheedhul Faaiz, us
 - **Attacks simulated**:
   - Nmap SYN scan (documented visibility gap – no alert).
   - Hydra SSH brute-force attack detected and escalated to high-severity brute-force alert.
-  - Suspicious payload drop detected via File Integrity Monitoring on `/root/soc_trap`.[file:1]
+  - Suspicious payload drop detected via File Integrity Monitoring on `/root/soc_trap`.
+  - RDP brute-force against Windows endpoint with account lockout detection.
+  - Suspicious PowerShell execution (Base64-encoded commands, discovery chain).
+  - Test payload drop with Sysmon Event 11 + Windows Defender integration.[file:1]
 - **Response**: Wazuh Active Response configured to automatically firewall-block attacker IPs on brute-force detection.
+- **Alert Tuning**: Custom Wazuh rules (100002–100005) suppress investigated false positives using precision PCRE2 matching while preserving detection for real threats.
 
 For a detailed, narrative report of the project, see:
 
@@ -77,3 +81,14 @@ The `scripts/` directory contains helper scripts used during lab setup:
 | `update-wazuh.sh` | Same as dynamic-ip-helper.py (Bash version – kept as a cross-language reference) |
 | `enable_fim.py` | Injects FIM real-time monitoring config into `ossec.conf` |
 | `inject_active_response.py` | Injects Active Response firewall-drop config into `ossec.conf` |
+
+## Configs
+
+The `configs/` directory contains configuration snippets used in the lab:
+
+| Config | Purpose |
+|--------|---------|
+| `sysmon-config.xml` | Minimal Sysmon config: Events 1 (Process), 3 (Network), 11 (File), 22 (DNS) with noise filtering |
+| `alert-tuning-rules.xml` | Custom Wazuh rules (100002–100005) for false positive suppression |
+| `fim-config-snippet.xml` | FIM real-time monitoring config for `/root/soc_trap` |
+| `active-response-snippet.xml` | Active Response firewall-drop config on Rule 5763 |

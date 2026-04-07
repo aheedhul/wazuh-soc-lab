@@ -1,0 +1,43 @@
+<!-- Custom Alert Tuning Rules for local_rules.xml
+     Location on manager: /var/ossec/etc/rules/local_rules.xml
+     Add these inside the <group> block.
+     
+     These rules suppress investigated false positives at Level 0.
+     Each was validated through SOC-style investigation before suppression.
+     Added: 2026-04-07 -->
+
+<!-- Suppress SCA-induced discovery alerts (Rules 92031, 92039)
+     Wazuh SCA module runs net.exe, SecEdit.exe etc. to check CIS benchmarks.
+     Sysmon captures these as discovery activity.
+     Match: parent process is the Wazuh agent -->
+<rule id="100002" level="0">
+  <if_sid>92031</if_sid>
+  <field name="win.eventdata.parentImage" type="pcre2">(?i)ossec-agent|wazuh-agent</field>
+  <description>Suppressed: Wazuh SCA module triggered discovery rule (92031)</description>
+</rule>
+
+<rule id="100003" level="0">
+  <if_sid>92039</if_sid>
+  <field name="win.eventdata.parentImage" type="pcre2">(?i)ossec-agent|wazuh-agent</field>
+  <description>Suppressed: Wazuh SCA module triggered net.exe discovery rule (92039)</description>
+</rule>
+
+<!-- Suppress Brave browser component updater file drops (Rule 92213)
+     brave.exe extracts update components into AppData\Local\Temp.
+     Match: process is brave.exe AND path contains BraveUpdate/BraveSoftware -->
+<rule id="100004" level="0">
+  <if_sid>92213</if_sid>
+  <field name="win.eventdata.image" type="pcre2">(?i)\\brave\.exe$</field>
+  <field name="win.eventdata.targetFilename" type="pcre2">(?i)BraveUpdate|BraveSoftware</field>
+  <description>Suppressed: Brave browser component updater file drop (92213)</description>
+</rule>
+
+<!-- Suppress svchost temp file creation (Rule 92200)
+     svchost.exe creates pool_tags_summary files in C:\Windows\Temp.
+     Match: process is svchost.exe AND filename contains pool_tags_summary -->
+<rule id="100005" level="0">
+  <if_sid>92200</if_sid>
+  <field name="win.eventdata.image" type="pcre2">(?i)\\svchost\.exe$</field>
+  <field name="win.eventdata.targetFilename" type="pcre2">(?i)pool_tags_summary</field>
+  <description>Suppressed: svchost temp file creation (92200)</description>
+</rule>
