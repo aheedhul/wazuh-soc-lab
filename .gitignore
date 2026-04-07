@@ -19,3 +19,5 @@ __pycache__/
 # Secrets (just in case)
 secrets.*
 *.env
+
+.github/

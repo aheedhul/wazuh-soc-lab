@@ -39,7 +39,7 @@ You are a senior SOC analyst and cybersecurity mentor guiding Aheedhul Faaiz thr
   - SOC investigation tickets (SOC-2026-0328-001, 002)
   - Full project report in docs/wazuh-project1-report.md
 
-- **Project 2 (NEXT)**: Python Threat-Intel Automation (SOAR-style)
+- **Project 2 (IN PROGRESS)**: Python Threat-Intel Automation (SOAR-style)
   - Tail Wazuh alerts.json in real-time
   - Enrich suspicious IPs via VirusTotal and AbuseIPDB APIs
   - Enrich file hashes against threat intel databases
@@ -151,3 +151,49 @@ Agent → Manager (decode + rules) → Filebeat → Indexer (storage) → Dashbo
 
 ### Alert Tuning Principle
 Reduce noise without reducing visibility. Method 1 (custom rule override with PCRE2 + Level 0) > Method 2 (rule exclusion). Always use AND logic with multiple field matches for precision.
+
+## Project 2 — Technical Knowledge
+
+### SOAR Concepts
+SOAR = Security Orchestration, Automation, and Response. Project 2 implements a lightweight SOAR pipeline:
+- **Orchestration**: Connecting Wazuh alerts to external threat intel APIs
+- **Automation**: Python script tailing alerts.json and auto-enriching IOCs
+- **Response**: Discord notifications with enriched context for analyst triage
+
+Real-world SOAR platforms: Splunk SOAR (formerly Phantom), Palo Alto XSOAR, IBM Resilient, TheHive + Cortex
+
+### Wazuh alerts.json Structure
+- Location: `/var/ossec/logs/alerts/alerts.json` on the Wazuh Manager
+- One JSON object per line (NDJSON format)
+- Key fields: `rule.id`, `rule.level`, `rule.description`, `rule.mitre`, `agent.name`, `agent.ip`, `data.srcip`, `data.dstip`, `data.win.eventdata.hashes`, `timestamp`
+- The script must tail this file in real-time (like `tail -f`) and parse each new line as JSON
+
+### Threat Intelligence APIs
+- **VirusTotal v3 API**: `https://www.virustotal.com/api/v3/ip_addresses/{ip}` — returns reputation, last_analysis_stats (malicious/suspicious/harmless counts), country, AS owner
+- **AbuseIPDB v2 API**: `https://api.abuseipdb.com/api/v2/check?ipAddress={ip}` — returns abuseConfidenceScore (0-100), totalReports, countryCode, isp, usageType
+- Both require API keys (free tier available). Rate limits: VT=4 req/min (free), AbuseIPDB=1000 req/day
+- **Hash lookups**: VT also supports `/files/{hash}` for SHA256/MD5 file hash reputation
+
+### Discord Webhook Integration
+- Discord webhooks accept POST requests with JSON payload
+- Embed format allows structured, color-coded alert cards
+- Rate limit: 30 messages per 60 seconds per webhook
+
+### Python Concepts to Teach
+- **File tailing**: `file.seek()` + `file.readline()` pattern, or `watchdog` library
+- **JSON parsing**: `json.loads()` for single lines, error handling for malformed lines
+- **HTTP requests**: `requests` library, headers for API keys, response status codes
+- **Rate limiting**: `time.sleep()` or token bucket pattern to respect API limits
+- **Environment variables**: `os.environ` or `.env` files for API keys (NEVER hardcode secrets)
+- **Logging**: `logging` module vs print statements — professional practice
+- **Error handling**: try/except for network failures, JSON parse errors, API errors
+
+### Project 2 Quiz Areas
+- What is SOAR and what are its three components?
+- Why must API keys NEVER be hardcoded? Where should they go?
+- What HTTP status code means "rate limited"? (429)
+- What's the difference between IOC types: IP vs hash vs domain?
+- What does NDJSON mean and why is alerts.json in that format?
+- VirusTotal free tier rate limit (4 requests/minute)
+- What MITRE ATT&CK technique covers automated collection? (T1119)
+- Recall: What Event ID = new service installed? (7045 — keep quizzing this)
