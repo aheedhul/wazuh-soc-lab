@@ -55,11 +55,31 @@ Wazuh Manager (alerts.json)
 
 ### Phase 1: Alert Tailing and Parsing
 
-*Coming soon*
+**Status**: Complete
+
+The `tail_alerts()` generator function implements real-time file tailing using Python's native `file.seek()` and `file.readline()` pattern. The function:
+
+1. Opens `/var/ossec/logs/alerts/alerts.json` and seeks to the end (`seek(0, 2)`) to skip historical alerts
+2. Continuously reads new lines with a 1-second poll interval
+3. Parses each line as JSON (NDJSON format — one JSON object per line)
+4. Yields parsed alert dicts to the caller, skipping malformed lines gracefully
+
+**Key design decisions**:
+- Seek-to-end on startup: avoids reprocessing thousands of historical alerts on restart
+- `MIN_RULE_LEVEL = 5` filter: reduces noise from informational-level alerts (levels 0–4)
+- `logging` module used instead of `print()` for timestamped, leveled output — professional practice
+- API keys loaded from `.env` file via custom `load_dotenv()` — secrets never hardcoded in source
+
+**Initial test** (2026-04-07): Successfully tailed alerts and captured Rule 92200 (Level 6) alerts from the Windows11 agent. Two malformed JSON warnings observed — caused by Wazuh writing a long alert across the readline boundary (a race condition during write). The error handling caught both gracefully.
 
 ### Phase 2: IOC Extraction
 
-*Coming soon*
+**Status**: Complete
+
+Two extraction functions parse IOCs from alert data:
+
+- `extract_ips()`: Pulls IPs from `data.srcip`, `data.dstip`, Sysmon `eventdata.sourceIp/destinationIp`, plus a broad regex sweep. Filters out RFC 1918 private IPs (10.x, 172.16-31.x, 192.168.x) to avoid enriching internal addresses.
+- `extract_hashes()`: Parses Sysmon hash format (`SHA256=abc,MD5=def,...`) and FIM syscheck fields (`sha256_after`, etc.). Validates against known hash lengths (MD5=32, SHA1=40, SHA256=64).
 
 ### Phase 3: Threat Intel Enrichment (VirusTotal + AbuseIPDB)
 
